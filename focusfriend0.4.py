@@ -1,93 +1,78 @@
-import os
+import openai
 import speech_recognition as sr
-from gtts import gTTS
-import wikipediaapi
-import sqlite3
-from googlesearch import search
+import pyttsx3
+import time
 
-# Configurar el idioma de la API de Wikipedia
-wiki_lang = wikipediaapi.Wikipedia('es')
+# Initialize OpenAI API
+openai.api_key = "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"
+# Initialize the text to speech engine
+engine = pyttsx3.init()
 
-# Crear y/o conectarse a la base de datos
-conn = sqlite3.connect('pacientes.db')
 
-# Crear tabla para pacientes si no existe
-conn.execute('''CREATE TABLE IF NOT EXISTS pacientes
-                (id INTEGER PRIMARY KEY,
-                 nombre TEXT NOT NULL,
-                 datos TEXT NOT NULL);''')
-
-# Funciones para interactuar con el asistente
-def escuchar():
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        audio = r.listen(source)
+def transcribe_audio_to_text(filename):
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(filename) as source:
+        audio = recognizer.record(source)
     try:
-        texto = r.recognize_google(audio, language='es-ES')
-        return texto
+        return recognizer.recognize_google(audio, language="es")
     except:
-        return None
+        print("No se pudo transcribir el audio")
 
-def hablar(texto):
-    tts = gTTS(texto, lang='es')
-    tts.save('respuesta.mp3')
-    os.system('mpg123 respuesta.mp3')
+def generate_response(prompt):
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=f"Estimado modelo de lenguaje, por favor proporciona una respuesta formal y completa en español para la siguiente consulta: {prompt}",
+        max_tokens=4000,
+        n=1,
+        stop=None,
+        temperature=0.5,
+    )
+    return response["choices"][0]["text"]
 
-def buscar_en_wikipedia(consulta):
-    pagina = wiki_lang.page(consulta)
-    return pagina.summary[0:250]
+# Set Spanish voice for text-to-speech engine
+voices = engine.getProperty('voices')
+spanish_voice = None
+for voice in voices:
+    if "spanish" in voice.languages:
+        spanish_voice = voice.id
+if spanish_voice is not None:
+    engine.setProperty('voice', spanish_voice)
 
-def buscar_en_google(consulta):
-    resultados = [j for j in search(consulta, num_results=3)]
-    return resultados
+def speak_text(text):
+    engine.say(text)
+    engine.runAndWait()
 
-def guardar_paciente(nombre, datos):
-    conn.execute("INSERT INTO pacientes (nombre, datos) VALUES (?, ?)", (nombre, datos))
-    conn.commit()
+def main():
+    while True:
+        print("Di 'Hola' para empezar a grabar")
+        with sr.Microphone() as source:
+            recognizer = sr.Recognizer()
+            audio = recognizer.listen(source)
+            try:
+                transcription = recognizer.recognize_google(audio, language="es")
+                if transcription.lower() == "hola":
+                    filename = "input.wav"
+                    print("Por favor, realiza tu pregunta")
+                    with sr.Microphone() as source:
+                        recognizer = sr.Recognizer()
+                        source.pause_threshold = 1
+                        audio = recognizer.listen(source, phrase_time_limit=None, timeout=None)
+                        with open(filename, "wb") as f:
+                            f.write(audio.get_wav_data())
+                    # Transcribe audio to text
+                    text = transcribe_audio_to_text(filename)
+                    if text:
+                        print(f"Tu pregunta fue: {text}")
 
-def obtener_datos_paciente(nombre):
-    cursor = conn.execute("SELECT datos FROM pacientes WHERE nombre=?", (nombre,))
-    datos = cursor.fetchone()
-    if datos:
-        return datos[0]
-    else:
-        return None
+                        # Generate the response
+                        response = generate_response(text)
+                        print(f"La respuesta es: {response}")
 
-# Interactuar con el asistente
-while True:
-    # Escuchar al usuario y procesar su consulta
-    consulta = escuchar()
-    if consulta is not None:
-        consulta = consulta.lower()
-        palabras = consulta.split()
+                        # Speak response using GPT3
+                        speak_text(response)
+            except Exception as e:
+                print("Error: {}".format(e))
 
-        if "wikipedia" in palabras:
-            tema = ' '.join(palabras[palabras.index("wikipedia") + 1:])
-            resultado = buscar_en_wikipedia(tema)
-            hablar(resultado)
+if __name__ == "__main__":
+    main()
 
-        elif "buscar" in palabras:
-            tema = ' '.join(palabras[palabras.index("buscar") + 1:])
-            resultados = buscar_en_google(tema)
-            hablar(f"He encontrado los siguientes resultados: {', '.join(resultados)}")
-
-        elif "guardar" in palabras and "paciente" in palabras:
-            nombre = palabras[palabras.index("paciente") + 1]
-            datos = ' '.join(palabras[palabras.index("datos") + 1:])
-            guardar_paciente(nombre, datos)
-            hablar(f"Datos guardados para el paciente {nombre}")
-
-        elif "obtener" in palabras and "paciente" in palabras:
-            nombre = palabras[palabras.index("paciente") + 1]
-            datos = obtener_datos_paciente(nombre)
-            if datos:
-                hablar(f"Datos del paciente {nombre}: {datos}")
-            else:
-                hablar(f"No se encontraron datos para el paciente {nombre}")
-
-        elif "salir" in palabras or "adiós" in palabras or "chao" in palabras:
-            hablar("Adiós, que tengas un buen día.")
-            break
-
-        else:
-            hablar("No entendí la consulta, por favor inténtalo de nuevo.")
