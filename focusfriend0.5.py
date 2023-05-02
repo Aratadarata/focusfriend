@@ -7,7 +7,7 @@ import os
 import re
 
 # Initialize OpenAI API
-openai.api_key = ""
+openai.api_key = "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"
 
 # Initialize the text to speech engine
 engine = pyttsx3.init()
@@ -97,8 +97,7 @@ def main():
             try:
                 transcription = recognizer.recognize_google(audio, language="es")
                 if transcription.lower() == "hola":
-                    filename =
-                    "input.wav"
+                    filename = "input.wav"
                     print("Dime que quieres mozo")
                     with sr.Microphone() as source:
                         recognizer = sr.Recognizer()
